@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+  --color-todde: #852136;
+  --color-todde-light: #a23d52;
+  --color-todde-dark: #621a2a;
+}
+
+body {
+  background-color: #f9fafb;
+  margin: 0;
+  padding: 0;
+}
