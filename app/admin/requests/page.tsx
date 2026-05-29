@@ -33,8 +33,6 @@ export default function RequestsPage() {
   async function handleUpdateRequest(e: React.FormEvent) {
     e.preventDefault();
     
-    // CREIAMO UN OGGETTO PULITO: inseriamo solo i campi che vogliamo cambiare
-    // Questo evita di inviare l'ID o i dati del dipendente a Supabase
     const updatePayload = {
       start_date: editingRequest.start_date || null,
       end_date: editingRequest.end_date || null,
@@ -46,8 +44,8 @@ export default function RequestsPage() {
 
     const { error } = await supabase
       .from('tbpr_requests')
-      .update(updatePayload) // Inviamo solo il payload pulito
-      .eq('id', editingRequest.id); // Filtriamo per l'ID corretto
+      .update(updatePayload)
+      .eq('id', editingRequest.id);
 
     if (error) {
       console.error("Errore Supabase:", error);
@@ -64,10 +62,8 @@ export default function RequestsPage() {
     const statusText = req.status === 'accettata' ? 'ACCETTATA ✅' : req.status === 'rifiutata' ? 'RIFIUTATA ❌' : 'IN SOSPESO ⏳';
     const message = `Ciao ${emp.first_name}, la tua richiesta di ${req.request_type} è stata ${statusText}.`;
     
-    // 1. Apriamo WhatsApp
     window.open(`https://wa.me/${emp.phone}?text=${message}`, '_blank');
 
-    // 2. AGGIORNIAMO IL DATABASE: segniamo che il messaggio è stato inviato
     const { error } = await supabase
       .from('tbpr_requests')
       .update({ wa_sent: true })
@@ -76,7 +72,7 @@ export default function RequestsPage() {
     if (error) {
       console.error("Errore aggiornamento WA:", error);
     } else {
-      fetchRequests(); // Aggiorniamo la tabella per far apparire il badge "Inviato"
+      fetchRequests();
     }
   };
 
@@ -109,7 +105,10 @@ export default function RequestsPage() {
     printWindow?.print();
   };
 
-  // FILTRO COMBINATO: Stato + Ricerca Nome/Cognome
+  // --- LOGICA NOTIFICA ---
+  // Contiamo quante richieste hanno lo stato 'in sospeso'
+  const pendingCount = requests.filter(r => r.status === 'in sospeso').length;
+
   const filteredRequests = requests.filter(r => {
     const matchesFilter = filter === 'tutte' ? true : r.status === filter;
     const fullName = `${r.tbpr_employees?.first_name} ${r.tbpr_employees?.last_name}`.toLowerCase();
@@ -125,7 +124,6 @@ export default function RequestsPage() {
           <h2 className="text-3xl font-bold text-gray-800">Gestione Richieste</h2>
         </div>
         
-        {/* RICERCA DIPENDENTE */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input 
@@ -150,7 +148,14 @@ export default function RequestsPage() {
             onClick={() => setFilter(tab.id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${filter === tab.id ? 'bg-white text-todde shadow-md' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            {tab.icon} {tab.label}
+            {tab.icon} 
+            {tab.label}
+            {/* Mostra il badge solo se siamo nella tab 'in sospeso' e ci sono richieste */}
+            {tab.id === 'in sospeso' && pendingCount > 0 && (
+              <span className="ml-1 flex items-center justify-center bg-red-500 text-white text-[10px] min-w-[18px] h-[18px] px-1 rounded-full shadow-sm">
+                {pendingCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -235,7 +240,6 @@ export default function RequestsPage() {
                     <div className="font-bold text-gray-800">{req.tbpr_employees?.first_name} {req.tbpr_employees?.last_name}</div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-gray-400">{req.tbpr_employees?.phone}</span>
-                      {/* BADGE INVIO WHATSAPP */}
                       {req.wa_sent && (
                         <span className="flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full">
                           <CheckCircle size={10} /> Inviato
@@ -260,7 +264,6 @@ export default function RequestsPage() {
                       <button onClick={() => updateStatus(req.id, 'accettata')} className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition" title="Accetta"><CheckCircle size={18} /></button>
                       <button onClick={() => updateStatus(req.id, 'rifiutata')} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition" title="Rifiuta"><XCircle size={18} /></button>
                       <button onClick={() => setEditingRequest(req)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Modifica"><Edit3 size={18} /></button>
-                      {/* Il tasto WA cambia colore se già inviato */}
                       <button 
                         onClick={() => sendWhatsAppOutcome(req)} 
                         className={`p-2 rounded-lg transition ${req.wa_sent ? 'text-gray-400 bg-gray-100' : 'text-green-500 hover:bg-green-50'}`} 
