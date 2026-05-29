@@ -1,13 +1,21 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Info } from 'lucide-react';
+import { 
+  ChevronLeft, ChevronRight, Calendar as CalendarIcon, 
+  Info, Search, Filter 
+} from 'lucide-react';
 
 export default function CalendarPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [loading, setLoading] = useState(true);
+  
+  // --- STATI PER I FILTRI ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('tutte');
+  const [typeFilter, setTypeFilter] = useState('tutte'); // Nuovo filtro per Tipo Richiesta
 
   useEffect(() => {
     fetchData();
@@ -23,6 +31,33 @@ export default function CalendarPage() {
     setLoading(false);
   }
 
+  // --- LOGICA DINAMICA PER I RUOLI (E per i Tipi di Richiesta) ---
+  const availableRoles = useMemo(() => {
+    const roles = employees.map(emp => emp.tbpr_roles?.role_name).filter(Boolean);
+    return Array.from(new Set(roles));
+  }, [employees]);
+
+  const availableTypes = useMemo(() => {
+    const types = requests.map(r => r.request_type).filter(Boolean);
+    return Array.from(new Set(types));
+  }, [requests]);
+
+  // --- FILTRO DIPENDENTI (Nome e Ruolo) ---
+  const filteredEmployees = employees.filter(emp => {
+    const fullName = `${emp.first_name} ${emp.last_name}`.toLowerCase();
+    const matchesSearch = fullName.includes(searchQuery.toLowerCase());
+    const matchesRole = roleFilter === 'tutte' || emp.tbpr_roles?.role_name === roleFilter;
+    return matchesSearch && matchesRole;
+  });
+
+  // --- FILTRO RICHIESTE (Per il visuale del calendario) ---
+  // Questo è il cuore del cambiamento: se filtro per "FERIE", 
+  // la funzione getStatusForDay vedrà solo le ferie.
+  const requestsToDisplay = useMemo(() => {
+    if (typeFilter === 'tutte') return requests;
+    return requests.filter(r => r.request_type === typeFilter);
+  }, [requests, typeFilter]);
+
   const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
   const monthName = currentDate.toLocaleString('it-IT', { month: 'long' });
   const year = currentDate.getFullYear();
@@ -33,9 +68,10 @@ export default function CalendarPage() {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
   };
 
+  // Modificata per usare requestsToDisplay invece di requests
   const getStatusForDay = (empId: string, day: number) => {
     const dateStr = `${year}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const req = requests.find(r => 
+    const req = requestsToDisplay.find(r => 
       r.employee_id === empId && 
       dateStr >= r.start_date && 
       dateStr <= (r.end_date || r.start_date)
@@ -65,6 +101,51 @@ export default function CalendarPage() {
             {monthName} <span className="text-todde">{year}</span>
           </span>
           <button onClick={() => changeMonth(1)} className="p-2 hover:bg-white rounded-xl transition-all shadow-sm"><ChevronRight size={20} /></button>
+        </div>
+      </div>
+
+      {/* BARRA FILTRI E RICERCA (AGGIORNATA) */}
+      <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-3xl shadow-sm border border-gray-200">
+        {/* 1. Ricerca Nome */}
+        <div className="relative flex-1 min-w-[250px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <input 
+            type="text" 
+            placeholder="Cerca dipendente..." 
+            className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-todde focus:ring-1 focus:ring-todde transition-all"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        {/* 2. Filtro Ruolo */}
+        <div className="relative flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 min-w-[160px]">
+          <Filter size={16} className="text-gray-400" />
+          <select 
+            className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer w-full"
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+          >
+            <option value="tutte">Tutti i ruoli</option>
+            {availableRoles.map(role => (
+              <option key={role} value={role}>{role}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* 3. NUOVO: Filtro Tipo Richiesta */}
+        <div className="relative flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 min-w-[160px]">
+          <CalendarDays size={16} className="text-gray-400" />
+          <select 
+            className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer w-full"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+          >
+            <option value="tutte">Tutti i tipi</option>
+            {availableTypes.map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -101,30 +182,38 @@ export default function CalendarPage() {
               </tr>
             </thead>
             <tbody>
-              {employees.map(emp => (
-                <tr key={emp.id} className="hover:bg-gray-50 transition-colors border-b last:border-0">
-                  <td className="p-4 text-sm font-bold text-gray-700 sticky left-0 bg-white z-20 border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-nowrap">
-                    <div className="flex flex-col">
-                      <span>{emp.first_name} {emp.last_name}</span>
-                      <span className="text-[10px] font-normal text-gray-400 uppercase">{emp.tbpr_roles?.role_name}</span>
-                    </div>
+              {filteredEmployees.length > 0 ? (
+                filteredEmployees.map(emp => (
+                  <tr key={emp.id} className="hover:bg-gray-50 transition-colors border-b last:border-0">
+                    <td className="p-4 text-sm font-bold text-gray-700 sticky left-0 bg-white z-20 border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-nowrap">
+                      <div className="flex flex-col">
+                        <span>{emp.first_name} {emp.last_name}</span>
+                        <span className="text-[10px] font-normal text-gray-400 uppercase">{emp.tbpr_roles?.role_name}</span>
+                      </div>
+                    </td>
+                    {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+                      const status = getStatusForDay(emp.id, day);
+                      const isToday = isCurrentMonth && day === today;
+                      return (
+                        <td key={day} className={`p-1 text-center ${isToday ? 'bg-blue-50/50' : ''}`}>
+                          <div 
+                            title={status ? `${status.type}` : 'Presente'}
+                            className={`w-full h-8 rounded-lg transition-all cursor-help ${status ? status.color + ' text-white text-[10px] flex items-center justify-center font-bold shadow-inner scale-95 hover:scale-100' : 'bg-gray-100 hover:bg-gray-200'}`}
+                          >
+                            {status && status.type[0]}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={daysInMonth + 1} className="p-10 text-center text-gray-400 italic">
+                    Nessun dipendente trovato con questi filtri.
                   </td>
-                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                    const status = getStatusForDay(emp.id, day);
-                    const isToday = isCurrentMonth && day === today;
-                    return (
-                      <td key={day} className={`p-1 text-center ${isToday ? 'bg-blue-50/50' : ''}`}>
-                        <div 
-                          title={status ? `${status.type}` : 'Presente'}
-                          className={`w-full h-8 rounded-lg transition-all cursor-help ${status ? status.color + ' text-white text-[10px] flex items-center justify-center font-bold shadow-inner scale-95 hover:scale-100' : 'bg-gray-100 hover:bg-gray-200'}`}
-                        >
-                          {status && status.type[0]}
-                        </div>
-                      </td>
-                    );
-                  })}
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -150,3 +239,6 @@ export default function CalendarPage() {
     </div>
   );
 }
+
+// Ho aggiunto l'import di CalendarDays per il filtro
+import { CalendarDays } from 'lucide-react';
