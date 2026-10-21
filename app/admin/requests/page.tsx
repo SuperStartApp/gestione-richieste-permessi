@@ -5,7 +5,7 @@ import { CheckCircle, XCircle, Clock, MessageCircle, Edit3, FileText, Search } f
 
 export default function RequestsPage() {
   const [requests, setRequests] = useState<any[]>([]);
-  const [filter, setFilter] = useState('in sospeso'); // Default su in sospeso per comodità
+  const [filter, setFilter] = useState('in sospeso');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [editingRequest, setEditingRequest] = useState<any>(null);
@@ -40,6 +40,7 @@ export default function RequestsPage() {
       end_time: editingRequest.end_time || null,
       protocol_number: editingRequest.protocol_number || null,
       notes: editingRequest.notes || null,
+      wa_sent: false, 
     };
 
     const { error } = await supabase
@@ -60,9 +61,20 @@ export default function RequestsPage() {
   const sendWhatsAppOutcome = async (req: any) => {
     const emp = req.tbpr_employees;
     const statusText = req.status === 'accettata' ? 'ACCETTATA ✅' : req.status === 'rifiutata' ? 'RIFIUTATA ❌' : 'IN SOSPESO ⏳';
-    const message = `Ciao ${emp.first_name}, la tua richiesta di ${req.request_type} è stata ${statusText}.`;
     
-    window.open(`https://wa.me/${emp.phone}?text=${message}`, '_blank');
+    const introMessage = req.status === 'in sospeso' 
+      ? `Ciao ${emp.first_name}, ci sono aggiornamenti sulla tua richiesta di ${req.request_type}. Lo stato attuale è: ${statusText}.`
+      : `Ciao ${emp.first_name}, la tua richiesta di ${req.request_type} è stata ${statusText}.`;
+
+    const dateRange = req.start_date + (req.end_date ? ` → ${req.end_date}` : '');
+    const timeRange = (req.start_time && req.end_time) ? ` (${req.start_time} - ${req.end_time})` : '';
+    
+    const message = `${introMessage}
+📅 Periodo: ${dateRange}${timeRange}
+📝 Note: ${req.notes || 'Nessuna'}`;
+    
+    const cleanPhone = emp.phone.replace(/\s+/g, '').replace('+', '');
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
 
     const { error } = await supabase
       .from('tbpr_requests')
@@ -93,8 +105,8 @@ export default function RequestsPage() {
           <div class="header"><h1>TODDE BUS - Documento Richiesta</h1></div>
           <div class="detail"><span class="label">Dipendente:</span> ${req.tbpr_employees.first_name} ${req.tbpr_employees.last_name}</div>
           <div class="detail"><span class="label">Tipo:</span> ${req.request_type}</div>
-          <div class="detail"><span class="label">Periodo:</span> ${req.start_date} $\rightarrow$ ${req.end_date || 'N/A'}</div>
-          <div class="detail"><span class="label">Orario:</span> ${req.start_time || 'N/A'} $\rightarrow$ ${req.end_time || 'N/A'}</div>
+          <div class="detail"><span class="label">Periodo:</span> ${req.start_date} → ${req.end_date || 'N/A'}</div>
+          <div class="detail"><span class="label">Orario:</span> ${req.start_time || 'N/A'} → ${req.end_time || 'N/A'}</div>
           <div class="detail"><span class="label">Protocollo:</span> ${req.protocol_number || 'N/A'}</div>
           <div class="detail"><span class="label">Note:</span> ${req.notes || 'Nessuna'}</div>
           <div class="detail" style="font-size: 22px; margin-top: 30px; font-weight: bold;">STATO: ${req.status.toUpperCase()}</div>
@@ -105,8 +117,6 @@ export default function RequestsPage() {
     printWindow?.print();
   };
 
-  // --- LOGICA NOTIFICA ---
-  // Contiamo quante richieste hanno lo stato 'in sospeso'
   const pendingCount = requests.filter(r => r.status === 'in sospeso').length;
 
   const filteredRequests = requests.filter(r => {
@@ -135,7 +145,6 @@ export default function RequestsPage() {
         </div>
       </div>
 
-      {/* TAB DI STATO */}
       <div className="flex flex-wrap gap-2 bg-gray-200 p-1 rounded-2xl w-fit">
         {[
           { id: 'tutte', label: 'Tutte', icon: <FileText size={14} /> },
@@ -150,7 +159,6 @@ export default function RequestsPage() {
           >
             {tab.icon} 
             {tab.label}
-            {/* Mostra il badge solo se siamo nella tab 'in sospeso' e ci sono richieste */}
             {tab.id === 'in sospeso' && pendingCount > 0 && (
               <span className="ml-1 flex items-center justify-center bg-red-500 text-white text-[10px] min-w-[18px] h-[18px] px-1 rounded-full shadow-sm">
                 {pendingCount}
@@ -160,7 +168,6 @@ export default function RequestsPage() {
         ))}
       </div>
 
-      {/* MODALE MODIFICA */}
       {editingRequest && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 rounded-3xl shadow-2xl w-full max-w-lg border-t-8 border-todde">
@@ -216,7 +223,6 @@ export default function RequestsPage() {
         </div>
       )}
 
-      {/* TABELLA RICHIESTE */}
       <div className="bg-white rounded-3xl shadow-md overflow-hidden border border-gray-200">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
