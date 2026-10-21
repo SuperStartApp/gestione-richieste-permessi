@@ -1,13 +1,14 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { UserPlus, Trash2, Copy, MessageCircle, Edit3, PlusCircle } from 'lucide-react';
+import { UserPlus, Trash2, Copy, MessageCircle, Edit3, PlusCircle, Search } from 'lucide-react';
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [search, setSearch] = useState(''); // NUOVO: Stato per la ricerca
   
   // Form Dipendente
   const [formData, setFormData] = useState({
@@ -34,6 +35,15 @@ export default function EmployeesPage() {
     setLoading(false);
   }
 
+  // --- LOGICA DI RICERCA ---
+  // Filtriamo la lista dei dipendenti in base a nome, cognome o telefono
+  const filteredEmployees = employees.filter(emp => {
+    const fullName = `${emp.first_name} ${emp.last_name}`.toLowerCase();
+    const phone = emp.phone.toLowerCase();
+    const query = search.toLowerCase();
+    return fullName.includes(query) || phone.includes(query);
+  });
+
   // --- GESTIONE CATEGORIE ---
   async function addRole(e: React.FormEvent) {
     e.preventDefault();
@@ -51,7 +61,6 @@ export default function EmployeesPage() {
     e.preventDefault();
 
     if (editingId) {
-      // MODIFICA
       const { error } = await supabase.from('tbpr_employees').update(formData).eq('id', editingId);
       if (error) alert("Errore modifica: " + error.message);
       else {
@@ -59,7 +68,6 @@ export default function EmployeesPage() {
         setEditingId(null);
       }
     } else {
-      // NUOVO
       const pin = Math.floor(100000 + Math.random() * 900000).toString();
       const privateLinkId = Math.random().toString(36).substring(2, 12);
       const { error } = await supabase.from('tbpr_employees').insert([{ ...formData, pin, private_link_id: privateLinkId }]);
@@ -124,7 +132,7 @@ export default function EmployeesPage() {
         </form>
       </div>
 
-      {/* FORM DIPENDENTE (Inserimento/Modifica) */}
+      {/* FORM DIPENDENTE */}
       <form onSubmit={handleSubmit} className={`p-6 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-4 gap-4 border-t-4 transition ${editingId ? 'border-blue-500 bg-blue-50' : 'border-todde bg-white'}`}>
         <div className="md:col-span-4">
           <h3 className="font-bold text-lg mb-2">{editingId ? '📝 Modifica Dipendente' : '👤 Nuovo Dipendente'}</h3>
@@ -148,6 +156,18 @@ export default function EmployeesPage() {
         </div>
       </form>
 
+      {/* BARRA DI RICERCA (NUOVA) */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+        <input 
+          type="text" 
+          placeholder="Cerca dipendente per nome o telefono..." 
+          className="w-full pl-10 p-3 border rounded-xl shadow-sm outline-none focus:border-todde transition bg-white"
+          value={search} 
+          onChange={e => setSearch(e.target.value)} 
+        />
+      </div>
+
       {/* TABELLA */}
       <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200">
         <div className="overflow-x-auto">
@@ -163,7 +183,9 @@ export default function EmployeesPage() {
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 <tr><td colSpan={4} className="p-4 text-center">Caricamento...</td></tr>
-              ) : employees.map(emp => (
+              ) : filteredEmployees.length === 0 ? (
+                <tr><td colSpan={4} className="p-10 text-center text-gray-400 italic">Nessun dipendente trovato.</td></tr>
+              ) : filteredEmployees.map(emp => (
                 <tr key={emp.id} className="hover:bg-gray-50 transition">
                   <td className="p-4 font-medium">{emp.first_name} {emp.last_name} <br/><span className="text-xs text-gray-400">{emp.phone}</span></td>
                   <td className="p-4"><span className="px-2 py-1 bg-gray-200 rounded-full text-xs">{emp.tbpr_roles?.role_name}</span></td>

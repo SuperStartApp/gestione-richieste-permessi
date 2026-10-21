@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   BarChart3, Download, FileText, Users, Clock, 
-  CheckCircle, AlertCircle, CalendarDays, Filter 
+  CheckCircle, AlertCircle, CalendarDays, Filter, Search 
 } from 'lucide-react';
 
 export default function StatsPage() {
@@ -11,12 +11,11 @@ export default function StatsPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeFilter, setTimeFilter] = useState<'all' | 'week' | 'month' | 'year'>('all');
+  const [search, setSearch] = useState(''); // NUOVO: Stato per la ricerca
 
   useEffect(() => {
     fetchData();
 
-    // --- LOGICA REALTIME ---
-    // Ascolta ogni cambiamento nella tabella delle richieste
     const channel = supabase
       .channel('stats-realtime')
       .on(
@@ -29,7 +28,6 @@ export default function StatsPage() {
       )
       .subscribe();
 
-    // Pulisce il canale quando l'utente esce dalla pagina
     return () => {
       supabase.removeChannel(channel);
     };
@@ -49,8 +47,13 @@ export default function StatsPage() {
     setLoading(false);
   }
 
-  // --- LOGICA DI FILTRO TEMPORALE (Basata su start_date) ---
+  // --- LOGICA DI FILTRO INTEGRATA (Tempo + Nome Dipendente) ---
   const filteredRequests = requests.filter(r => {
+    // 1. Filtro per Nome/Cognome
+    const fullName = `${r.tbpr_employees?.first_name} ${r.tbpr_employees?.last_name}`.toLowerCase();
+    if (!fullName.includes(search.toLowerCase())) return false;
+
+    // 2. Filtro Temporale
     if (timeFilter === 'all') return true;
     
     const reqDate = new Date(r.start_date);
@@ -70,13 +73,12 @@ export default function StatsPage() {
     return true;
   });
 
-  // --- CALCOLI STATISTICHE (Basati sui dati filtrati) ---
+  // --- CALCOLI STATISTICHE (Ora basati su filteredRequests che include la ricerca) ---
   const totalRequests = filteredRequests.length;
   const approvedCount = filteredRequests.filter(r => r.status === 'accettata').length;
   const pendingCount = filteredRequests.filter(r => r.status === 'in sospeso').length;
   const rejectedCount = filteredRequests.filter(r => r.status === 'rifiutata').length;
 
-  // Conteggio per tipo di richiesta (MODELLO IBRIDO)
   const types = ['FERIE', 'PERMESSO', 'MALATTIA', 'CONGEDO', 'LUTTO'];
   const typeStats = types.map(type => {
     const allOfType = filteredRequests.filter(r => r.request_type === type);
@@ -88,9 +90,8 @@ export default function StatsPage() {
     };
   });
 
-  // --- ESPORTAZIONE EXCEL (CSV) ---
   const exportToCSV = () => {
-    if (filteredRequests.length === 0) return alert("Nessun dato per il periodo selezionato");
+    if (filteredRequests.length === 0) return alert("Nessun dato per i filtri selezionati");
 
     const headers = "Dipendente,Tipo,Inizio,Fine,Stato,Note\n";
     const rows = filteredRequests.map(r => 
@@ -107,7 +108,6 @@ export default function StatsPage() {
     document.body.removeChild(link);
   };
 
-  // --- REPORT PDF GLOBALE ---
   const exportToPDF = () => {
     const printWindow = window.open('', '_blank');
     printWindow?.document.write(`
@@ -126,7 +126,7 @@ export default function StatsPage() {
           </style>
         </head>
         <body>
-          <div class="header"><h1>TODDE BUS - Report Assenze (${timeFilter.toUpperCase()})</h1></div>
+          <div class="header"><h1>TODDE BUS - Report Assenze</h1></div>
           <div class="summary">
             <div class="card">Totale Richieste<br/><span class="val">${totalRequests}</span></div>
             <div class="card">Approvate<br/><span class="val">${approvedCount}</span></div>
@@ -172,7 +172,19 @@ export default function StatsPage() {
           <h2 className="text-3xl font-bold text-gray-800">Statistiche e Report</h2>
         </div>
         
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* BARRA DI RICERCA */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Cerca dipendente..." 
+              className="pl-10 p-2 border rounded-xl shadow-sm w-full md:w-64 outline-none focus:border-todde transition text-sm"
+              value={search} 
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
           {/* SELEZIONE PERIODO */}
           <div className="flex items-center bg-gray-100 p-1 rounded-xl border border-gray-200">
             <div className="px-2 text-gray-400"><Filter size={16}/></div>
@@ -188,16 +200,16 @@ export default function StatsPage() {
             </select>
           </div>
 
-          <button onClick={exportToCSV} className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-green-700 transition shadow-sm">
+          <button onClick={exportToCSV} className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-green-700 transition shadow-sm text-sm">
             <Download size={18} /> Excel
           </button>
-          <button onClick={exportToPDF} className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded-xl font-bold hover:bg-black transition shadow-sm">
+          <button onClick={exportToPDF} className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded-xl font-bold hover:bg-black transition shadow-sm text-sm">
             <FileText size={18} /> PDF
           </button>
         </div>
       </div>
 
-      {/* CARDS PRINCIPALI */}
+      {/* CARDS PRINCIPALI (Aggiornate in tempo reale dalla ricerca) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200 flex items-center gap-4">
           <div className="bg-blue-100 p-3 rounded-2xl text-blue-600"><Users size={24} /></div>
@@ -229,7 +241,7 @@ export default function StatsPage() {
         </div>
       </div>
 
-      {/* ANALISI PER TIPO (MODELLO IBRIDO) */}
+      {/* ANALISI PER TIPO (Sincronizzata con la ricerca) */}
       <div className="bg-white p-8 rounded-3xl shadow-md border border-gray-200">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-xl font-bold text-gray-800">Distribuzione Richieste</h3>
@@ -251,7 +263,6 @@ export default function StatsPage() {
                   style={{ width: `${totalRequests > 0 ? (stat.total / totalRequests) * 100 : 0}%` }}
                 ></div>
               </div>
-              {/* DETTAGLIO SOTTO LA BARRA */}
               {stat.total > 0 && (
                 <div className="flex gap-3 text-[10px] font-medium text-gray-400">
                   <span className="text-green-600">{stat.accepted} Accettate</span>
@@ -268,7 +279,7 @@ export default function StatsPage() {
         </div>
         {totalRequests === 0 && (
           <div className="text-center py-10 text-gray-400 italic">
-            Nessuna richiesta registrata nel periodo selezionato.
+            {search ? `Nessuna richiesta trovata per "${search}"` : "Nessuna richiesta registrata nel periodo selezionato."}
           </div>
         )}
       </div>
