@@ -1,11 +1,11 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { CheckCircle, XCircle, Clock, MessageCircle, Edit3, FileText, Search } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, MessageCircle, Edit3, FileText, Search, Calendar } from 'lucide-react';
 
 export default function RequestsPage() {
   const [requests, setRequests] = useState<any[]>([]);
-  const [filter, setFilter] = useState('in sospeso');
+  const [filter, setFilter] = useState('in sospeso'); 
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [editingRequest, setEditingRequest] = useState<any>(null);
@@ -24,6 +24,18 @@ export default function RequestsPage() {
     setLoading(false);
   }
 
+  const formatDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('it-IT', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   async function updateStatus(id: string, newStatus: string) {
     const { error } = await supabase.from('tbpr_requests').update({ status: newStatus }).eq('id', id);
     if (error) alert("Errore aggiornamento: " + error.message);
@@ -32,7 +44,6 @@ export default function RequestsPage() {
 
   async function handleUpdateRequest(e: React.FormEvent) {
     e.preventDefault();
-    
     const updatePayload = {
       start_date: editingRequest.start_date || null,
       end_date: editingRequest.end_date || null,
@@ -40,16 +51,12 @@ export default function RequestsPage() {
       end_time: editingRequest.end_time || null,
       protocol_number: editingRequest.protocol_number || null,
       notes: editingRequest.notes || null,
-      wa_sent: false, 
+      wa_sent: false,
     };
 
-    const { error } = await supabase
-      .from('tbpr_requests')
-      .update(updatePayload)
-      .eq('id', editingRequest.id);
+    const { error } = await supabase.from('tbpr_requests').update(updatePayload).eq('id', editingRequest.id);
 
     if (error) {
-      console.error("Errore Supabase:", error);
       alert("Errore modifica: " + error.message);
     } else {
       alert("Richiesta aggiornata con successo!");
@@ -61,31 +68,19 @@ export default function RequestsPage() {
   const sendWhatsAppOutcome = async (req: any) => {
     const emp = req.tbpr_employees;
     const statusText = req.status === 'accettata' ? 'ACCETTATA ✅' : req.status === 'rifiutata' ? 'RIFIUTATA ❌' : 'IN SOSPESO ⏳';
-    
     const introMessage = req.status === 'in sospeso' 
       ? `Ciao ${emp.first_name}, ci sono aggiornamenti sulla tua richiesta di ${req.request_type}. Lo stato attuale è: ${statusText}.`
       : `Ciao ${emp.first_name}, la tua richiesta di ${req.request_type} è stata ${statusText}.`;
 
     const dateRange = req.start_date + (req.end_date ? ` → ${req.end_date}` : '');
     const timeRange = (req.start_time && req.end_time) ? ` (${req.start_time} - ${req.end_time})` : '';
-    
-    const message = `${introMessage}
-📅 Periodo: ${dateRange}${timeRange}
-📝 Note: ${req.notes || 'Nessuna'}`;
+    const message = `${introMessage}\n\n📅 Periodo: ${dateRange}${timeRange}\n📝 Note: ${req.notes || 'Nessuna'}`;
     
     const cleanPhone = emp.phone.replace(/\s+/g, '').replace('+', '');
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
 
-    const { error } = await supabase
-      .from('tbpr_requests')
-      .update({ wa_sent: true })
-      .eq('id', req.id);
-
-    if (error) {
-      console.error("Errore aggiornamento WA:", error);
-    } else {
-      fetchRequests();
-    }
+    await supabase.from('tbpr_requests').update({ wa_sent: true }).eq('id', req.id);
+    fetchRequests();
   };
 
   const downloadPDF = (req: any) => {
@@ -133,7 +128,6 @@ export default function RequestsPage() {
           <FileText className="text-todde" size={32} />
           <h2 className="text-3xl font-bold text-gray-800">Gestione Richieste</h2>
         </div>
-        
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input 
@@ -157,8 +151,7 @@ export default function RequestsPage() {
             onClick={() => setFilter(tab.id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${filter === tab.id ? 'bg-white text-todde shadow-md' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            {tab.icon} 
-            {tab.label}
+            {tab.icon} {tab.label}
             {tab.id === 'in sospeso' && pendingCount > 0 && (
               <span className="ml-1 flex items-center justify-center bg-red-500 text-white text-[10px] min-w-[18px] h-[18px] px-1 rounded-full shadow-sm">
                 {pendingCount}
@@ -174,46 +167,15 @@ export default function RequestsPage() {
             <h3 className="text-xl font-bold mb-4">Modifica Richiesta</h3>
             <form onSubmit={handleUpdateRequest} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <input 
-                  type="date" 
-                  className="p-2 border rounded-lg" 
-                  value={editingRequest.start_date || ''} 
-                  onChange={e => setEditingRequest({...editingRequest, start_date: e.target.value})} 
-                />
-                <input 
-                  type="date" 
-                  className="p-2 border rounded-lg" 
-                  value={editingRequest.end_date || ''} 
-                  onChange={e => setEditingRequest({...editingRequest, end_date: e.target.value})} 
-                />
+                <input type="date" className="p-2 border rounded-lg" value={editingRequest.start_date || ''} onChange={e => setEditingRequest({...editingRequest, start_date: e.target.value})} />
+                <input type="date" className="p-2 border rounded-lg" value={editingRequest.end_date || ''} onChange={e => setEditingRequest({...editingRequest, end_date: e.target.value})} />
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <input 
-                  type="time" 
-                  className="p-2 border rounded-lg" 
-                  value={editingRequest.start_time || ''} 
-                  onChange={e => setEditingRequest({...editingRequest, start_time: e.target.value})} 
-                />
-                <input 
-                  type="time" 
-                  className="p-2 border rounded-lg" 
-                  value={editingRequest.end_time || ''} 
-                  onChange={e => setEditingRequest({...editingRequest, end_time: e.target.value})} 
-                />
+                <input type="time" className="p-2 border rounded-lg" value={editingRequest.start_time || ''} onChange={e => setEditingRequest({...editingRequest, start_time: e.target.value})} />
+                <input type="time" className="p-2 border rounded-lg" value={editingRequest.end_time || ''} onChange={e => setEditingRequest({...editingRequest, end_time: e.target.value})} />
               </div>
-              <input 
-                type="text" 
-                placeholder="Protocollo" 
-                className="w-full p-2 border rounded-lg" 
-                value={editingRequest.protocol_number || ''} 
-                onChange={e => setEditingRequest({...editingRequest, protocol_number: e.target.value})} 
-              />
-              <textarea 
-                className="w-full p-2 border rounded-lg" 
-                rows={3} 
-                value={editingRequest.notes || ''} 
-                onChange={e => setEditingRequest({...editingRequest, notes: e.target.value})}
-              ></textarea>
+              <input type="text" placeholder="Protocollo" className="w-full p-2 border rounded-lg" value={editingRequest.protocol_number || ''} onChange={e => setEditingRequest({...editingRequest, protocol_number: e.target.value})} />
+              <textarea className="w-full p-2 border rounded-lg" rows={3} value={editingRequest.notes || ''} onChange={e => setEditingRequest({...editingRequest, notes: e.target.value})}></textarea>
               <div className="flex gap-2">
                 <button type="submit" className="flex-1 bg-todde text-white p-3 rounded-xl font-bold hover:bg-todde-dark transition">Salva Modifiche</button>
                 <button type="button" onClick={() => setEditingRequest(null)} className="flex-1 bg-gray-200 text-gray-700 p-3 rounded-xl font-bold">Annulla</button>
@@ -230,6 +192,7 @@ export default function RequestsPage() {
               <tr>
                 <th className="p-4">Dipendente</th>
                 <th className="p-4">Tipo</th>
+                <th className="p-4">Data Invio</th>
                 <th className="p-4">Periodo</th>
                 <th className="p-4">Stato</th>
                 <th className="p-4 text-center">Azioni</th>
@@ -237,9 +200,9 @@ export default function RequestsPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={5} className="p-10 text-center text-gray-400">Caricamento richieste...</td></tr>
+                <tr><td colSpan={6} className="p-10 text-center text-gray-400">Caricamento richieste...</td></tr>
               ) : filteredRequests.length === 0 ? (
-                <tr><td colSpan={5} className="p-10 text-center text-gray-400">Nessuna richiesta trovata.</td></tr>
+                <tr><td colSpan={6} className="p-10 text-center text-gray-400">Nessuna richiesta trovata.</td></tr>
               ) : filteredRequests.map(req => (
                 <tr key={req.id} className="hover:bg-gray-50 transition">
                   <td className="p-4">
@@ -255,6 +218,12 @@ export default function RequestsPage() {
                   </td>
                   <td className="p-4">
                     <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md text-xs font-bold">{req.request_type}</span>
+                  </td>
+                  <td className="p-4">
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Calendar size={14} className="text-gray-400" />
+                      {formatDate(req.created_at)}
+                    </div>
                   </td>
                   <td className="p-4 text-sm text-gray-600">
                     {req.start_date} {req.end_date ? ` → ${req.end_date}` : ''}
