@@ -8,11 +8,15 @@ export default function EmployeesPage() {
   const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [search, setSearch] = useState(''); // NUOVO: Stato per la ricerca
-  
-  // Form Dipendente
+  const [search, setSearch] = useState('');
+
+  // Form Dipendente con aggiunta del branch (sede)
   const [formData, setFormData] = useState({
-    first_name: '', last_name: '', phone: '', role_id: ''
+    first_name: '',
+    last_name: '',
+    phone: '',
+    role_id: '',
+    branch: ''
   });
 
   // Form Nuova Categoria
@@ -30,18 +34,21 @@ export default function EmployeesPage() {
 
   async function fetchEmployees() {
     setLoading(true);
-    const { data } = await supabase.from('tbpr_employees').select('*, tbpr_roles(role_name)').order('created_at', { ascending: false });
+    const { data } = await supabase
+      .from('tbpr_employees')
+      .select('*, tbpr_roles(role_name)')
+      .order('created_at', { ascending: false });
     if (data) setEmployees(data);
     setLoading(false);
   }
 
-  // --- LOGICA DI RICERCA ---
-  // Filtriamo la lista dei dipendenti in base a nome, cognome o telefono
+  // --- LOGICA DI RICERCA (Nome, Telefono o Sede) ---
   const filteredEmployees = employees.filter(emp => {
     const fullName = `${emp.first_name} ${emp.last_name}`.toLowerCase();
-    const phone = emp.phone.toLowerCase();
+    const phone = (emp.phone || '').toLowerCase();
+    const branch = (emp.branch || '').toLowerCase();
     const query = search.toLowerCase();
-    return fullName.includes(query) || phone.includes(query);
+    return fullName.includes(query) || phone.includes(query) || branch.includes(query);
   });
 
   // --- GESTIONE CATEGORIE ---
@@ -75,17 +82,18 @@ export default function EmployeesPage() {
       else alert("Dipendente inserito!");
     }
 
-    setFormData({ first_name: '', last_name: '', phone: '', role_id: '' });
+    setFormData({ first_name: '', last_name: '', phone: '', role_id: '', branch: '' });
     fetchEmployees();
   }
 
   function startEdit(emp: any) {
     setEditingId(emp.id);
     setFormData({
-      first_name: emp.first_name,
-      last_name: emp.last_name,
-      phone: emp.phone,
-      role_id: emp.role_id
+      first_name: emp.first_name || '',
+      last_name: emp.last_name || '',
+      phone: emp.phone || '',
+      role_id: emp.role_id || '',
+      branch: emp.branch || ''
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -133,35 +141,82 @@ export default function EmployeesPage() {
       </div>
 
       {/* FORM DIPENDENTE */}
-      <form onSubmit={handleSubmit} className={`p-6 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-4 gap-4 border-t-4 transition ${editingId ? 'border-blue-500 bg-blue-50' : 'border-todde bg-white'}`}>
-        <div className="md:col-span-4">
+      <form onSubmit={handleSubmit} className={`p-6 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-5 gap-4 border-t-4 transition ${editingId ? 'border-blue-500 bg-blue-50' : 'border-todde bg-white'}`}>
+        <div className="md:col-span-5">
           <h3 className="font-bold text-lg mb-2">{editingId ? '📝 Modifica Dipendente' : '👤 Nuovo Dipendente'}</h3>
         </div>
-        <input type="text" placeholder="Nome" required className="p-2 border rounded-md bg-white" value={formData.first_name} onChange={e => setFormData({...formData, first_name: e.target.value})} />
-        <input type="text" placeholder="Cognome" required className="p-2 border rounded-md bg-white" value={formData.last_name} onChange={e => setFormData({...formData, last_name: e.target.value})} />
-        <input type="text" placeholder="Telefono (es. 39...)" required className="p-2 border rounded-md bg-white" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
-        <select required className="p-2 border rounded-md bg-white" value={formData.role_id} onChange={e => setFormData({...formData, role_id: e.target.value})}>
+        <input 
+          type="text" 
+          placeholder="Nome" 
+          required 
+          className="p-2 border rounded-md bg-white" 
+          value={formData.first_name} 
+          onChange={e => setFormData({...formData, first_name: e.target.value})} 
+        />
+        <input 
+          type="text" 
+          placeholder="Cognome" 
+          required 
+          className="p-2 border rounded-md bg-white" 
+          value={formData.last_name} 
+          onChange={e => setFormData({...formData, last_name: e.target.value})} 
+        />
+        <input 
+          type="text" 
+          placeholder="Telefono (es. 39...)" 
+          required 
+          className="p-2 border rounded-md bg-white" 
+          value={formData.phone} 
+          onChange={e => setFormData({...formData, phone: e.target.value})} 
+        />
+        <select 
+          required 
+          className="p-2 border rounded-md bg-white" 
+          value={formData.role_id} 
+          onChange={e => setFormData({...formData, role_id: e.target.value})}
+        >
           <option value="">Seleziona Ruolo</option>
           {roles.map(r => <option key={r.id} value={r.id}>{r.role_name}</option>)}
         </select>
-        <div className="md:col-span-4 flex gap-2">
+        
+        {/* DROPDOWN SEDE */}
+        <select 
+          required 
+          className="p-2 border rounded-md bg-white font-medium" 
+          value={formData.branch} 
+          onChange={e => setFormData({...formData, branch: e.target.value})}
+        >
+          <option value="">Seleziona Sede</option>
+          <option value="TB">TB</option>
+          <option value="MTE">MTE</option>
+          <option value="MTC">MTC</option>
+        </select>
+
+        <div className="md:col-span-5 flex gap-2">
           <button type="submit" className={`${editingId ? 'bg-blue-600' : 'bg-todde'} text-white px-6 py-2 rounded-md font-bold hover:opacity-90 transition`}>
             {editingId ? 'Salva Modifiche' : 'Aggiungi Dipendente'}
           </button>
           {editingId && (
-            <button type="button" onClick={() => {setEditingId(null); setFormData({first_name: '', last_name: '', phone: '', role_id: ''})}} className="bg-gray-400 text-white px-6 py-2 rounded-md font-bold">
+            <button 
+              type="button" 
+              onClick={() => {
+                setEditingId(null); 
+                setFormData({ first_name: '', last_name: '', phone: '', role_id: '', branch: '' });
+              }} 
+              className="bg-gray-400 text-white px-6 py-2 rounded-md font-bold hover:bg-gray-500 transition"
+            >
               Annulla
             </button>
           )}
         </div>
       </form>
 
-      {/* BARRA DI RICERCA (NUOVA) */}
+      {/* BARRA DI RICERCA */}
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
         <input 
           type="text" 
-          placeholder="Cerca dipendente per nome o telefono..." 
+          placeholder="Cerca per nome, telefono o sede..." 
           className="w-full pl-10 p-3 border rounded-xl shadow-sm outline-none focus:border-todde transition bg-white"
           value={search} 
           onChange={e => setSearch(e.target.value)} 
@@ -187,8 +242,20 @@ export default function EmployeesPage() {
                 <tr><td colSpan={4} className="p-10 text-center text-gray-400 italic">Nessun dipendente trovato.</td></tr>
               ) : filteredEmployees.map(emp => (
                 <tr key={emp.id} className="hover:bg-gray-50 transition">
-                  <td className="p-4 font-medium">{emp.first_name} {emp.last_name} <br/><span className="text-xs text-gray-400">{emp.phone}</span></td>
-                  <td className="p-4"><span className="px-2 py-1 bg-gray-200 rounded-full text-xs">{emp.tbpr_roles?.role_name}</span></td>
+                  <td className="p-4 font-medium">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-gray-900 uppercase">
+                        {emp.first_name} {emp.last_name}
+                      </span>
+                      {emp.branch && (
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 border border-gray-300 shadow-sm">
+                          {emp.branch}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-400">{emp.phone}</span>
+                  </td>
+                  <td className="p-4"><span className="px-2 py-1 bg-gray-200 rounded-full text-xs font-medium text-gray-700">{emp.tbpr_roles?.role_name}</span></td>
                   <td className="p-4 font-mono font-bold text-todde">{emp.pin}</td>
                   <td className="p-4 flex justify-center gap-2">
                     <button onClick={() => startEdit(emp)} className="p-2 text-amber-600 hover:bg-amber-50 rounded-md transition" title="Modifica"><Edit3 size={18} /></button>

@@ -16,14 +16,16 @@ export default function RequestsPage() {
 
   async function fetchRequests() {
     setLoading(true);
+    // MODIFICA 1: Abbiamo aggiunto ", branch" alla selezione dei dipendenti
     const { data } = await supabase
       .from('tbpr_requests')
-      .select('*, tbpr_employees(first_name, last_name, phone)')
+      .select('*, tbpr_employees(first_name, last_name, phone, branch)')
       .order('created_at', { ascending: false });
     if (data) setRequests(data);
     setLoading(false);
   }
 
+  // Formatta data e ora completa (Data Invio)
   const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
@@ -34,6 +36,16 @@ export default function RequestsPage() {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  // MODIFICA 2: Funzione per convertire YYYY-MM-DD in DD/MM/YYYY (Periodo)
+  const formatSimpleDate = (dateString: string) => {
+    if (!dateString) return '';
+    const parts = dateString.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateString;
   };
 
   async function updateStatus(id: string, newStatus: string) {
@@ -72,11 +84,14 @@ export default function RequestsPage() {
       ? `Ciao ${emp.first_name}, ci sono aggiornamenti sulla tua richiesta di ${req.request_type}. Lo stato attuale è: ${statusText}.`
       : `Ciao ${emp.first_name}, la tua richiesta di ${req.request_type} è stata ${statusText}.`;
 
-    const dateRange = req.start_date + (req.end_date ? ` → ${req.end_date}` : '');
+    // Date formattate all'italiana per WhatsApp
+    const startFormatted = formatSimpleDate(req.start_date);
+    const endFormatted = req.end_date ? formatSimpleDate(req.end_date) : '';
+    const dateRange = startFormatted + (endFormatted ? ` → ${endFormatted}` : '');
     const timeRange = (req.start_time && req.end_time) ? ` (${req.start_time} - ${req.end_time})` : '';
     const message = `${introMessage}\n\n📅 Periodo: ${dateRange}${timeRange}\n📝 Note: ${req.notes || 'Nessuna'}`;
     
-    const cleanPhone = emp.phone.replace(/\s+/g, '').replace('+', '');
+    const cleanPhone = emp.phone ? emp.phone.replace(/\s+/g, '').replace('+', '') : '';
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
 
     await supabase.from('tbpr_requests').update({ wa_sent: true }).eq('id', req.id);
@@ -85,6 +100,9 @@ export default function RequestsPage() {
 
   const downloadPDF = (req: any) => {
     const printWindow = window.open('', '_blank');
+    const startFormatted = formatSimpleDate(req.start_date);
+    const endFormatted = req.end_date ? formatSimpleDate(req.end_date) : 'N/A';
+
     printWindow?.document.write(`
       <html>
         <head>
@@ -98,9 +116,9 @@ export default function RequestsPage() {
         </head>
         <body>
           <div class="header"><h1>TODDE BUS - Documento Richiesta</h1></div>
-          <div class="detail"><span class="label">Dipendente:</span> ${req.tbpr_employees.first_name} ${req.tbpr_employees.last_name}</div>
+          <div class="detail"><span class="label">Dipendente:</span> ${req.tbpr_employees.first_name} ${req.tbpr_employees.last_name} ${req.tbpr_employees.branch ? `(${req.tbpr_employees.branch})` : ''}</div>
           <div class="detail"><span class="label">Tipo:</span> ${req.request_type}</div>
-          <div class="detail"><span class="label">Periodo:</span> ${req.start_date} → ${req.end_date || 'N/A'}</div>
+          <div class="detail"><span class="label">Periodo:</span> ${startFormatted} → ${endFormatted}</div>
           <div class="detail"><span class="label">Orario:</span> ${req.start_time || 'N/A'} → ${req.end_time || 'N/A'}</div>
           <div class="detail"><span class="label">Protocollo:</span> ${req.protocol_number || 'N/A'}</div>
           <div class="detail"><span class="label">Note:</span> ${req.notes || 'Nessuna'}</div>
@@ -117,7 +135,9 @@ export default function RequestsPage() {
   const filteredRequests = requests.filter(r => {
     const matchesFilter = filter === 'tutte' ? true : r.status === filter;
     const fullName = `${r.tbpr_employees?.first_name} ${r.tbpr_employees?.last_name}`.toLowerCase();
-    const matchesSearch = fullName.includes(search.toLowerCase());
+    const branch = (r.tbpr_employees?.branch || '').toLowerCase();
+    const query = search.toLowerCase();
+    const matchesSearch = fullName.includes(query) || branch.includes(query);
     return matchesFilter && matchesSearch;
   });
 
@@ -132,7 +152,7 @@ export default function RequestsPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input 
             type="text" 
-            placeholder="Cerca dipendente..." 
+            placeholder="Cerca dipendente o sede..." 
             className="pl-10 p-2 border rounded-xl shadow-sm w-full md:w-64 outline-none focus:border-todde transition"
             value={search} onChange={e => setSearch(e.target.value)}
           />
@@ -206,8 +226,18 @@ export default function RequestsPage() {
               ) : filteredRequests.map(req => (
                 <tr key={req.id} className="hover:bg-gray-50 transition">
                   <td className="p-4">
-                    <div className="font-bold text-gray-800">{req.tbpr_employees?.first_name} {req.tbpr_employees?.last_name}</div>
+                    {/* NOME + BADGE SEDE */}
                     <div className="flex items-center gap-2">
+                      <span className="font-bold text-gray-800 uppercase">
+                        {req.tbpr_employees?.first_name} {req.tbpr_employees?.last_name}
+                      </span>
+                      {req.tbpr_employees?.branch && (
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 border border-gray-300">
+                          {req.tbpr_employees.branch}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-gray-400">{req.tbpr_employees?.phone}</span>
                       {req.wa_sent && (
                         <span className="flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full">
@@ -225,8 +255,9 @@ export default function RequestsPage() {
                       {formatDate(req.created_at)}
                     </div>
                   </td>
-                  <td className="p-4 text-sm text-gray-600">
-                    {req.start_date} {req.end_date ? ` → ${req.end_date}` : ''}
+                  {/* PERIODO FORMATTATO ALL'ITALIANA */}
+                  <td className="p-4 text-sm text-gray-600 font-medium">
+                    {formatSimpleDate(req.start_date)} {req.end_date ? ` → ${formatSimpleDate(req.end_date)}` : ''}
                     {req.start_time && <div className="text-[10px] text-gray-400">{req.start_time} - {req.end_time}</div>}
                   </td>
                   <td className="p-4">
