@@ -1,10 +1,12 @@
 "use client";
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { 
   Receipt, Search, Filter, Download, Edit3, Trash2, 
   Eye, Printer, CheckCircle, XCircle, Clock, Lock, 
-  FileSpreadsheet, X, ExternalLink, Calendar, User, Copy, History, Plus, AlertCircle 
+  FileSpreadsheet, X, ExternalLink, Calendar, User, Copy, 
+  History, Plus, BarChart3, TrendingUp, DollarSign, MapPin, ChevronDown 
 } from 'lucide-react';
 
 const ADMIN_EXPENSE_PIN = "2026";
@@ -21,15 +23,26 @@ const CATEGORIES = [
   { id: 'other', label: 'Varie' },
 ];
 
+const MONTH_NAMES = [
+  "Gen", "Feb", "Mar", "Apr", "Mag", "Giu", 
+  "Lug", "Ago", "Set", "Ott", "Nov", "Dic"
+];
+
 export default function AdminExpensesPage() {
+  const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pinInput, setPinInput] = useState('');
   
   const [expenses, setExpenses] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Filtri
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('tutte');
+  const [branchFilter, setBranchFilter] = useState('tutte');
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [showChart, setShowChart] = useState(true);
 
   // Modali
   const [viewingExpense, setViewingExpense] = useState<any>(null);
@@ -37,7 +50,7 @@ export default function AdminExpensesPage() {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   useEffect(() => {
-    const savedAuth = localStorage.getItem('todde_expense_auth');
+    const savedAuth = sessionStorage.getItem('todde_expense_auth');
     if (savedAuth === 'true') {
       setIsAuthenticated(true);
       fetchData();
@@ -46,7 +59,6 @@ export default function AdminExpensesPage() {
 
   async function fetchData() {
     setLoading(true);
-    // Scarichiamo sia le note spese che i dipendenti per abbinare le sedi
     const { data: empData } = await supabase.from('tbpr_employees').select('id, first_name, last_name, branch');
     const { data: expData } = await supabase.from('tbpr_expenses').select('*').order('created_at', { ascending: false });
 
@@ -55,7 +67,6 @@ export default function AdminExpensesPage() {
     setLoading(false);
   }
 
-  // Mappa di fallback per trovare la sede dall'anagrafica se mancante nella nota spesa
   const employeeBranchMap = useMemo(() => {
     const map: { [name: string]: string } = {};
     employees.forEach(emp => {
@@ -76,7 +87,7 @@ export default function AdminExpensesPage() {
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (pinInput === ADMIN_EXPENSE_PIN) {
-      localStorage.setItem('todde_expense_auth', 'true');
+      sessionStorage.setItem('todde_expense_auth', 'true');
       setIsAuthenticated(true);
       fetchData();
     } else {
@@ -86,9 +97,10 @@ export default function AdminExpensesPage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('todde_expense_auth');
+    sessionStorage.removeItem('todde_expense_auth');
     setIsAuthenticated(false);
     setPinInput('');
+    router.push('/');
   };
 
   const formatSimpleDate = (dateStr?: string) => {
@@ -97,7 +109,81 @@ export default function AdminExpensesPage() {
     return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : dateStr;
   };
 
-  // --- MODIFICA COMPLETA ---
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter(exp => {
+      const branch = getDriverBranch(exp);
+      const matchesSearch = exp.driver_name.toLowerCase().includes(search.toLowerCase()) ||
+        (exp.group_name || '').toLowerCase().includes(search.toLowerCase()) ||
+        (branch || '').toLowerCase().includes(search.toLowerCase()) ||
+        (exp.legacy_id || '').includes(search);
+      const matchesStatus = statusFilter === 'tutte' ? true : exp.status === statusFilter;
+      const matchesBranch = branchFilter === 'tutte' ? true : branch === branchFilter;
+      return matchesSearch && matchesStatus && matchesBranch;
+    });
+  }, [expenses, search, statusFilter, branchFilter, employeeBranchMap]);
+
+  const pendingCount = useMemo(() => {
+    return expenses.filter(e => (e.status || 'in attesa') === 'in attesa').length;
+  }, [expenses]);
+
+  const kpis = useMemo(() => {
+    const active = filteredExpenses.filter(e => e.is_latest !== false);
+
+    const totalRequested = active.reduce((acc, curr) => acc + (parseFloat(curr.total_amount) || 0), 0);
+    const totalReimbursed = active
+      .filter(e => e.status === 'Rimborsato' || e.status === 'Da rimborsare')
+      .reduce((acc, curr) => acc + (parseFloat(curr.reimbursed_amount ?? curr.total_amount) || 0), 0);
+
+    const pendingTotal = active
+      .filter(e => (e.status || 'in attesa') === 'in attesa')
+      .reduce((acc, curr) => acc + (parseFloat(curr.total_amount) || 0), 0);
+
+    return {
+      count: active.length,
+      totalRequested,
+      totalReimbursed,
+      pendingTotal,
+      pendingCount: active.filter(e => (e.status || 'in attesa') === 'in attesa').length,
+    };
+  }, [filteredExpenses]);
+
+  // --- GRAFICO MENSILE CON ENTRAMBI GLI IMPORTI (RICHIESTO E RIMBORSATO) ---
+  const monthlyStats = useMemo(() => {
+    const monthlyData: { [month: number]: { requested: number; reimbursed: number; count: number } } = {};
+    for (let m = 0; m < 12; m++) {
+      monthlyData[m] = { requested: 0, reimbursed: 0, count: 0 };
+    }
+
+    filteredExpenses.forEach(exp => {
+      if (exp.is_latest === false) return;
+      const d = new Date(exp.date_from || exp.created_at);
+      if (d.getFullYear() === selectedYear) {
+        const m = d.getMonth();
+        const reqAmt = parseFloat(exp.total_amount) || 0;
+        const reimbAmt = exp.reimbursed_amount !== undefined && exp.reimbursed_amount !== null
+          ? parseFloat(exp.reimbursed_amount)
+          : (exp.status === 'Rimborsato' || exp.status === 'Da rimborsare' ? reqAmt : 0);
+
+        monthlyData[m].requested += reqAmt;
+        monthlyData[m].reimbursed += reimbAmt;
+        monthlyData[m].count += 1;
+      }
+    });
+
+    const maxVal = Math.max(
+      ...Object.values(monthlyData).map(v => Math.max(v.requested, v.reimbursed)),
+      50
+    );
+
+    return { monthlyData, maxVal };
+  }, [filteredExpenses, selectedYear]);
+
+  const availableYears = useMemo(() => {
+    const years = expenses.map(e => new Date(e.date_from || e.created_at).getFullYear()).filter(Boolean);
+    const set = Array.from(new Set(years)).sort((a, b) => b - a);
+    return set.length > 0 ? set : [new Date().getFullYear()];
+  }, [expenses]);
+
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -148,16 +234,13 @@ export default function AdminExpensesPage() {
     }
   };
 
-  // --- DUPLICA / CREA REVISIONE (COLLEGANDO L'ORIGINALE) ---
   const handleDuplicateRevision = async (exp: any) => {
     const parentIdDisplay = exp.legacy_id || exp.id.substring(0, 6);
-    if (!confirm(`Vuoi creare una REVISIONE di questa nota spese?\nL'originale dell'autista #${parentIdDisplay} rimarrà archiviata e collegata.`)) return;
+    if (!confirm(`Vuoi creare una REVISIONE di questa nota spese?\nL'originale dell'autista #${parentIdDisplay} rimarrà archiviata.`)) return;
 
     try {
-      // 1. La nota precedente diventa 'archiviata/non-latest'
       await supabase.from('tbpr_expenses').update({ is_latest: false }).eq('id', exp.id);
 
-      // 2. Nuova revisione duplicata con parent_id
       const newRevision = {
         ...exp,
         id: undefined,
@@ -174,7 +257,7 @@ export default function AdminExpensesPage() {
       const { data, error } = await supabase.from('tbpr_expenses').insert([newRevision]).select().single();
       if (error) throw error;
 
-      alert("Revisione creata con successo! Ora puoi modificarla.");
+      alert("Revisione creata con successo!");
       await fetchData();
       setEditingExpense(data);
     } catch (err: any) {
@@ -189,7 +272,6 @@ export default function AdminExpensesPage() {
     else fetchData();
   };
 
-  // STAMPA PDF
   const handlePrintPDF = (exp: any) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -228,7 +310,7 @@ export default function AdminExpensesPage() {
           <div class="header">
             <div>
               <h1 class="title">TODDE BUS SRL</h1>
-              <p style="margin: 3px 0; font-size: 13px; color: #666;">Documento di Rendicontazione Spese Autisti</p>
+              <p style="margin: 3px 0; font-size: 13px; color: #666;">Documento Nota Spese</p>
             </div>
             <div style="text-align: right;">
               <p style="margin: 0; font-size: 13px;"><strong>Data:</strong> ${formatSimpleDate(exp.created_at?.split('T')[0])}</p>
@@ -282,23 +364,20 @@ export default function AdminExpensesPage() {
     printWindow.print();
   };
 
-  // --- ESPORTAZIONE EXCEL CON RIFERIMENTO CHIARO DEL DUPLICATO ---
   const handleExportCSV = () => {
-    if (expenses.length === 0) return alert("Nessuna nota spese da esportare!");
+    const exportable = filteredExpenses.filter(e => e.is_latest !== false);
 
-    // Intestazioni chiare e comprensibili
+    if (exportable.length === 0) return alert("Nessuna nota spese da esportare con i filtri attuali!");
+
     const headers = [
-      "ID NOTA SPESE", 
-      "TIPO VOCE", 
-      "RIF. ID ORIGINALE", 
-      "STATO VERSIONE",
+      "ID NOTA SPESE", "TIPO VOCE", "RIF. ID ORIGINALE", "STATO VERSIONE",
       "Dal", "Al", "Autista", "Sede", "Gruppo", "Fattura N.",
       "Totale Richiesto €", "Importo Rimborsato €", "Stato", "Esito", "Note Amministrazione",
       "Pasti €", "Parcheggi €", "Carburante €", "AdBlue €", "Pedaggi €",
       "Riparazioni €", "Pernotto €", "Lavaggio €", "Varie €", "Data Registrazione"
     ];
 
-    const rows = expenses.map(e => {
+    const rows = exportable.map(e => {
       const branch = getDriverBranch(e);
       const isRevision = !!e.parent_id;
       const parentExp = e.parent_id ? expenses.find(p => p.id === e.parent_id) : null;
@@ -346,16 +425,6 @@ export default function AdminExpensesPage() {
     document.body.removeChild(link);
   };
 
-  const filteredExpenses = expenses.filter(exp => {
-    const branch = getDriverBranch(exp);
-    const matchesSearch = exp.driver_name.toLowerCase().includes(search.toLowerCase()) ||
-      (exp.group_name || '').toLowerCase().includes(search.toLowerCase()) ||
-      (branch || '').toLowerCase().includes(search.toLowerCase()) ||
-      (exp.legacy_id || '').includes(search);
-    const matchesStatus = statusFilter === 'tutte' ? true : exp.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
-
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
@@ -390,7 +459,7 @@ export default function AdminExpensesPage() {
 
   return (
     <div className="space-y-6">
-      {/* HEADER */}
+      {/* HEADER LAVAGNA */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl shadow-sm border border-gray-200">
         <div className="flex items-center gap-3">
           <div className="bg-todde p-3 rounded-2xl text-white shadow-md">
@@ -398,11 +467,21 @@ export default function AdminExpensesPage() {
           </div>
           <div>
             <h2 className="text-2xl font-black text-gray-800 leading-none">Lavagna Note Spese</h2>
-            <p className="text-xs text-gray-400 mt-1">Controllo scontrini, revisioni e rimborsi autisti</p>
+            <p className="text-xs text-gray-400 mt-1">Controllo scontrini, revisioni e analisi rimborsi</p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setShowChart(!showChart)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition border ${
+              showChart ? 'bg-todde text-white border-todde shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-200'
+            }`}
+          >
+            <BarChart3 size={16} />
+            <span>{showChart ? 'Nascondi Grafico' : 'Mostra Grafico Spese'}</span>
+          </button>
+
           <button
             onClick={handleExportCSV}
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-2xl text-xs font-bold shadow-sm transition"
@@ -415,22 +494,191 @@ export default function AdminExpensesPage() {
             onClick={handleLogout}
             className="text-xs font-bold text-gray-500 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3.5 py-2.5 rounded-2xl transition"
           >
-            Esci
+            Chiudi Sessione (Esci)
           </button>
         </div>
       </div>
 
-      {/* FILTRI */}
+      {/* 4 MINI-CARD KPI */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm flex items-center gap-4">
+          <div className="p-3 bg-gray-100 text-gray-700 rounded-2xl">
+            <DollarSign size={24} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Totale Richiesto</p>
+            <p className="text-2xl font-black text-gray-800">€ {kpis.totalRequested.toFixed(2)}</p>
+            <span className="text-[11px] text-gray-400">su {kpis.count} note spese</span>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm flex items-center gap-4">
+          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
+            <CheckCircle size={24} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Totale Rimborsato</p>
+            <p className="text-2xl font-black text-emerald-600">€ {kpis.totalReimbursed.toFixed(2)}</p>
+            <span className="text-[11px] text-emerald-700 font-semibold">importo approvato</span>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm flex items-center gap-4">
+          <div className="p-3 bg-rose-50 text-todde rounded-2xl">
+            <Clock size={24} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">In Attesa di Liquidazione</p>
+            <p className="text-2xl font-black text-todde">€ {kpis.pendingTotal.toFixed(2)}</p>
+            <span className="text-[11px] text-todde font-bold">{kpis.pendingCount} da verificare</span>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm flex items-center gap-4">
+          <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+            <TrendingUp size={24} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Pratiche Gestite</p>
+            <p className="text-2xl font-black text-blue-600">{kpis.count}</p>
+            <span className="text-[11px] text-gray-400">filtro attuale</span>
+          </div>
+        </div>
+      </div>
+
+      {/* GRAFICO A DOPPIA BARRA MENSILE A CONFRONTO */}
+      {showChart && (
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <BarChart3 size={18} className="text-todde" />
+                <h3 className="text-base font-extrabold text-gray-800">
+                  Andamento Mensile Spese & Rimborsi
+                </h3>
+              </div>
+
+              {/* LEGENDA COLORI */}
+              <div className="flex items-center gap-3 text-xs font-bold pl-2 border-l border-gray-200">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-todde"></span>
+                  <span className="text-gray-600">Richiesto</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+                  <span className="text-gray-600">Rimborsato</span>
+                </div>
+              </div>
+            </div>
+
+            {/* SELETTORE ANNO */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-gray-500">Anno:</span>
+              <select
+                value={selectedYear}
+                onChange={e => setSelectedYear(Number(e.target.value))}
+                className="bg-gray-100 border border-gray-200 rounded-xl px-3 py-1.5 text-xs font-bold text-gray-700 outline-none cursor-pointer"
+              >
+                {availableYears.map(yr => (
+                  <option key={yr} value={yr}>{yr}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* BARRE DEL GRAFICO (DOPPIE: RICHIESTO + RIMBORSATO) */}
+          <div className="pt-4">
+            <div className="grid grid-cols-12 gap-1 sm:gap-2 items-end h-44 border-b border-gray-200 pb-2">
+              {MONTH_NAMES.map((mName, idx) => {
+                const stat = monthlyStats.monthlyData[idx];
+                
+                // Percentuali di altezza con minimo del 5% per renderle visibili
+                const reqPercent = stat.requested > 0 
+                  ? Math.max(6, Math.min(100, Math.round((stat.requested / monthlyStats.maxVal) * 100))) 
+                  : 0;
+
+                const reimbPercent = stat.reimbursed > 0 
+                  ? Math.max(6, Math.min(100, Math.round((stat.reimbursed / monthlyStats.maxVal) * 100))) 
+                  : 0;
+
+                return (
+                  <div key={idx} className="flex flex-col items-center gap-2 h-full justify-end group relative">
+                    {/* TOOLTIP INTERATTIVO SU HOVER */}
+                    <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col items-center bg-gray-900 text-white text-[11px] py-2 px-3 rounded-xl shadow-2xl z-30 whitespace-nowrap pointer-events-none">
+                      <span className="font-bold text-amber-300">{mName} {selectedYear}</span>
+                      <span className="text-rose-200">🍷 Spesa Richiesta: € {stat.requested.toFixed(2)}</span>
+                      <span className="text-emerald-300">🟢 Da Rimborsare: € {stat.reimbursed.toFixed(2)}</span>
+                      <span className="text-gray-400 text-[10px] mt-0.5">({stat.count} note spese)</span>
+                    </div>
+
+                    {/* COPPIA DI BARRE AFFIANCATE */}
+                    <div className="w-full bg-gray-50 rounded-t-xl overflow-hidden h-36 flex items-end justify-center gap-1 p-0.5">
+                      {/* BARRA 1: RICHIESTO (BORDEAUX TODDE) */}
+                      <div className="w-1/2 flex items-end h-full">
+                        <div
+                          style={{ height: `${reqPercent}%` }}
+                          className={`w-full rounded-t-md transition-all duration-500 ${
+                            stat.requested > 0 
+                              ? 'bg-todde group-hover:opacity-90' 
+                              : 'bg-transparent'
+                          }`}
+                        />
+                      </div>
+
+                      {/* BARRA 2: RIMBORSATO (VERDE) */}
+                      <div className="w-1/2 flex items-end h-full">
+                        <div
+                          style={{ height: `${reimbPercent}%` }}
+                          className={`w-full rounded-t-md transition-all duration-500 ${
+                            stat.reimbursed > 0 
+                              ? 'bg-emerald-500 group-hover:opacity-90' 
+                              : 'bg-transparent'
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* NOME MESE */}
+                    <span className="text-[10px] sm:text-xs font-bold text-gray-500">
+                      {mName}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-between items-center pt-2 text-[11px] text-gray-400">
+              <span>Scala massima grafico: € {monthlyStats.maxVal.toFixed(2)}</span>
+              <span className="italic">Passa con il mouse sopra le barre per i dettagli</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FILTRI DI RICERCA, SEDE E STATO */}
       <div className="flex flex-wrap items-center gap-3 bg-white p-4 rounded-3xl shadow-sm border border-gray-200">
         <div className="relative flex-1 min-w-[240px]">
           <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Cerca per autista, sede, gruppo o ID..."
+            placeholder="Cerca per autista, gruppo o ID..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-sm outline-none focus:border-todde"
           />
+        </div>
+
+        <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-2xl px-3 py-2">
+          <MapPin size={16} className="text-gray-400" />
+          <select
+            value={branchFilter}
+            onChange={e => setBranchFilter(e.target.value)}
+            className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
+          >
+            <option value="tutte">Tutte le Sedi</option>
+            <option value="TB">Sede TB</option>
+            <option value="MTE">Sede MTE</option>
+            <option value="MTC">Sede MTC</option>
+          </select>
         </div>
 
         <div className="flex flex-wrap gap-1.5 bg-gray-100 p-1 rounded-2xl">
@@ -444,11 +692,16 @@ export default function AdminExpensesPage() {
             <button
               key={st.id}
               onClick={() => setStatusFilter(st.id)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                 statusFilter === st.id ? 'bg-white text-todde shadow-sm' : 'text-gray-500 hover:text-gray-800'
               }`}
             >
-              {st.label}
+              <span>{st.label}</span>
+              {st.id === 'in attesa' && pendingCount > 0 && (
+                <span className="flex items-center justify-center bg-red-500 text-white text-[10px] min-w-[18px] h-[18px] px-1 rounded-full shadow-sm font-black">
+                  {pendingCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -460,7 +713,7 @@ export default function AdminExpensesPage() {
           <div className="p-12 text-center text-gray-400 font-bold">Caricamento lavagna...</div>
         ) : filteredExpenses.length === 0 ? (
           <div className="bg-white p-12 rounded-3xl text-center text-gray-400 border border-dashed border-gray-300">
-            Nessuna nota spese trovata con i filtri attuali.
+            Nessuna nota spese trovata con i filtri impostati.
           </div>
         ) : (
           filteredExpenses.map(exp => {
@@ -493,14 +746,12 @@ export default function AdminExpensesPage() {
                           {exp.driver_name}
                         </h3>
 
-                        {/* BOLLINO SEDE (TB, MTE, MTC) AUTOMATICO */}
                         {branch && (
                           <span className="text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 border border-gray-300 shadow-sm">
                             {branch}
                           </span>
                         )}
 
-                        {/* BADGE SE È UNA REVISIONE O ORIGINALE */}
                         {isRevision ? (
                           <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full flex items-center gap-1">
                             <History size={10} /> Revisione di #{parentDisplayId}
@@ -519,7 +770,7 @@ export default function AdminExpensesPage() {
                     </div>
                   </div>
 
-                  {/* IMPORTI: RICHIESTO VS DA RIMBORSARE */}
+                  {/* IMPORTI */}
                   <div className="flex items-center gap-4">
                     <div className="text-right">
                       <span className="text-[10px] font-bold text-gray-400 uppercase block">Richiesto</span>
@@ -589,7 +840,6 @@ export default function AdminExpensesPage() {
                       <span>Stampa PDF</span>
                     </button>
 
-                    {/* SE È UNA REVISIONE: TASTO PER APRIRE L'ORIGINALE DELL'AUTISTA */}
                     {parentExpense && (
                       <button
                         onClick={() => setViewingExpense(parentExpense)}
@@ -603,7 +853,6 @@ export default function AdminExpensesPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* TASTO DUPLICA / CREA REVISIONE */}
                     <button
                       onClick={() => handleDuplicateRevision(exp)}
                       className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold rounded-xl transition border border-purple-200"
@@ -613,7 +862,6 @@ export default function AdminExpensesPage() {
                       <span>Duplica (Revisione)</span>
                     </button>
 
-                    {/* MODIFICA COMPLETA */}
                     <button
                       onClick={() => setEditingExpense(JSON.parse(JSON.stringify(exp)))}
                       className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl transition"
