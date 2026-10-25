@@ -1,20 +1,22 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { UserPlus, Trash2, Copy, MessageCircle, Edit3, PlusCircle, Search } from 'lucide-react';
+import { UserPlus, Trash2, Copy, MessageCircle, Edit3, PlusCircle, Search, Mail, Loader2 } from 'lucide-react';
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sendingEmailId, setSendingEmailId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
-  // Form Dipendente con aggiunta del branch (sede)
+  // Form Dipendente
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
     phone: '',
+    email: '',
     role_id: '',
     branch: ''
   });
@@ -42,13 +44,14 @@ export default function EmployeesPage() {
     setLoading(false);
   }
 
-  // --- LOGICA DI RICERCA (Nome, Telefono o Sede) ---
+  // --- RICERCA ---
   const filteredEmployees = employees.filter(emp => {
     const fullName = `${emp.first_name} ${emp.last_name}`.toLowerCase();
     const phone = (emp.phone || '').toLowerCase();
+    const email = (emp.email || '').toLowerCase();
     const branch = (emp.branch || '').toLowerCase();
     const query = search.toLowerCase();
-    return fullName.includes(query) || phone.includes(query) || branch.includes(query);
+    return fullName.includes(query) || phone.includes(query) || email.includes(query) || branch.includes(query);
   });
 
   // --- GESTIONE CATEGORIE ---
@@ -82,7 +85,7 @@ export default function EmployeesPage() {
       else alert("Dipendente inserito!");
     }
 
-    setFormData({ first_name: '', last_name: '', phone: '', role_id: '', branch: '' });
+    setFormData({ first_name: '', last_name: '', phone: '', email: '', role_id: '', branch: '' });
     fetchEmployees();
   }
 
@@ -92,6 +95,7 @@ export default function EmployeesPage() {
       first_name: emp.first_name || '',
       last_name: emp.last_name || '',
       phone: emp.phone || '',
+      email: emp.email || '',
       role_id: emp.role_id || '',
       branch: emp.branch || ''
     });
@@ -116,6 +120,41 @@ export default function EmployeesPage() {
     window.open(`https://wa.me/${emp.phone}?text=${message}`, '_blank');
   };
 
+  // --- INVIO EMAIL CREDENZIALI (ARUBA + LOG SU SUPABASE) ---
+  const sendEmailCredentials = async (emp: any) => {
+    if (!emp.email) {
+      alert("Questo dipendente non ha ancora un'email registrata. Clicca sulla matita ✏️ per aggiungerla!");
+      return;
+    }
+
+    if (!confirm(`Inviare le credenziali di accesso via email a ${emp.first_name} (${emp.email})?`)) return;
+
+    setSendingEmailId(emp.id);
+    try {
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'credentials',
+          employeeId: emp.id,
+          recipientEmail: emp.email,
+          firstName: emp.first_name,
+          pin: emp.pin,
+          privateLinkId: emp.private_link_id,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Errore durante l'invio");
+
+      alert(`✅ Email inviata con successo a ${emp.email}!\nUna copia è stata recapitata a gestione.permessi@mtexplore.it`);
+    } catch (err: any) {
+      alert("❌ Errore durante l'invio: " + err.message);
+    } finally {
+      setSendingEmailId(null);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex items-center gap-2 mb-6">
@@ -123,7 +162,7 @@ export default function EmployeesPage() {
         <h2 className="text-3xl font-bold text-gray-800">Gestione Personale</h2>
       </div>
 
-      {/* SEZIONE CATEGORIE */}
+      {/* SEZIONE NUOVA CATEGORIA */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-wrap items-center gap-4">
         <span className="text-sm font-bold text-gray-500 uppercase">Nuova Categoria:</span>
         <form onSubmit={addRole} className="flex gap-2">
@@ -140,16 +179,16 @@ export default function EmployeesPage() {
         </form>
       </div>
 
-      {/* FORM DIPENDENTE */}
-      <form onSubmit={handleSubmit} className={`p-6 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-5 gap-4 border-t-4 transition ${editingId ? 'border-blue-500 bg-blue-50' : 'border-todde bg-white'}`}>
-        <div className="md:col-span-5">
+      {/* FORM DIPENDENTE (CON EMAIL E SEDE) */}
+      <form onSubmit={handleSubmit} className={`p-6 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-6 gap-3 border-t-4 transition ${editingId ? 'border-blue-500 bg-blue-50' : 'border-todde bg-white'}`}>
+        <div className="md:col-span-6">
           <h3 className="font-bold text-lg mb-2">{editingId ? '📝 Modifica Dipendente' : '👤 Nuovo Dipendente'}</h3>
         </div>
         <input 
           type="text" 
           placeholder="Nome" 
           required 
-          className="p-2 border rounded-md bg-white" 
+          className="p-2 border rounded-md bg-white text-sm" 
           value={formData.first_name} 
           onChange={e => setFormData({...formData, first_name: e.target.value})} 
         />
@@ -157,32 +196,36 @@ export default function EmployeesPage() {
           type="text" 
           placeholder="Cognome" 
           required 
-          className="p-2 border rounded-md bg-white" 
+          className="p-2 border rounded-md bg-white text-sm" 
           value={formData.last_name} 
           onChange={e => setFormData({...formData, last_name: e.target.value})} 
         />
         <input 
           type="text" 
           placeholder="Telefono (es. 39...)" 
-          required 
-          className="p-2 border rounded-md bg-white" 
+          className="p-2 border rounded-md bg-white text-sm" 
           value={formData.phone} 
           onChange={e => setFormData({...formData, phone: e.target.value})} 
         />
+        <input 
+          type="email" 
+          placeholder="Email dipendente" 
+          className="p-2 border rounded-md bg-white text-sm" 
+          value={formData.email} 
+          onChange={e => setFormData({...formData, email: e.target.value})} 
+        />
         <select 
           required 
-          className="p-2 border rounded-md bg-white" 
+          className="p-2 border rounded-md bg-white text-sm" 
           value={formData.role_id} 
           onChange={e => setFormData({...formData, role_id: e.target.value})}
         >
           <option value="">Seleziona Ruolo</option>
           {roles.map(r => <option key={r.id} value={r.id}>{r.role_name}</option>)}
         </select>
-        
-        {/* DROPDOWN SEDE */}
         <select 
           required 
-          className="p-2 border rounded-md bg-white font-medium" 
+          className="p-2 border rounded-md bg-white text-sm font-medium" 
           value={formData.branch} 
           onChange={e => setFormData({...formData, branch: e.target.value})}
         >
@@ -192,8 +235,8 @@ export default function EmployeesPage() {
           <option value="MTC">MTC</option>
         </select>
 
-        <div className="md:col-span-5 flex gap-2">
-          <button type="submit" className={`${editingId ? 'bg-blue-600' : 'bg-todde'} text-white px-6 py-2 rounded-md font-bold hover:opacity-90 transition`}>
+        <div className="md:col-span-6 flex gap-2 mt-2">
+          <button type="submit" className={`${editingId ? 'bg-blue-600' : 'bg-todde'} text-white px-6 py-2 rounded-md font-bold hover:opacity-90 transition text-sm`}>
             {editingId ? 'Salva Modifiche' : 'Aggiungi Dipendente'}
           </button>
           {editingId && (
@@ -201,9 +244,9 @@ export default function EmployeesPage() {
               type="button" 
               onClick={() => {
                 setEditingId(null); 
-                setFormData({ first_name: '', last_name: '', phone: '', role_id: '', branch: '' });
+                setFormData({ first_name: '', last_name: '', phone: '', email: '', role_id: '', branch: '' });
               }} 
-              className="bg-gray-400 text-white px-6 py-2 rounded-md font-bold hover:bg-gray-500 transition"
+              className="bg-gray-400 text-white px-6 py-2 rounded-md font-bold hover:bg-gray-500 transition text-sm"
             >
               Annulla
             </button>
@@ -216,7 +259,7 @@ export default function EmployeesPage() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
         <input 
           type="text" 
-          placeholder="Cerca per nome, telefono o sede..." 
+          placeholder="Cerca per nome, email, telefono o sede..." 
           className="w-full pl-10 p-3 border rounded-xl shadow-sm outline-none focus:border-todde transition bg-white"
           value={search} 
           onChange={e => setSearch(e.target.value)} 
@@ -248,19 +291,37 @@ export default function EmployeesPage() {
                         {emp.first_name} {emp.last_name}
                       </span>
                       {emp.branch && (
-                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 border border-gray-300 shadow-sm">
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 border border-gray-300">
                           {emp.branch}
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-gray-400">{emp.phone}</span>
+                    <div className="text-xs text-gray-400 space-x-2 mt-0.5">
+                      {emp.phone && <span>{emp.phone}</span>}
+                      {emp.email && <span className="text-gray-600 font-medium">• {emp.email}</span>}
+                    </div>
                   </td>
                   <td className="p-4"><span className="px-2 py-1 bg-gray-200 rounded-full text-xs font-medium text-gray-700">{emp.tbpr_roles?.role_name}</span></td>
                   <td className="p-4 font-mono font-bold text-todde">{emp.pin}</td>
                   <td className="p-4 flex justify-center gap-2">
                     <button onClick={() => startEdit(emp)} className="p-2 text-amber-600 hover:bg-amber-50 rounded-md transition" title="Modifica"><Edit3 size={18} /></button>
                     <button onClick={() => copyToClipboard(`${window.location.origin}/private/${emp.private_link_id}`)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-md transition" title="Copia Link"><Copy size={18} /></button>
-                    <button onClick={() => sendWhatsApp(emp)} className="p-2 text-green-600 hover:bg-green-50 rounded-md transition" title="Invia WA"><MessageCircle size={18} /></button>
+                    <button onClick={() => sendWhatsApp(emp)} className="p-2 text-green-600 hover:bg-green-50 rounded-md transition" title="Invia WhatsApp"><MessageCircle size={18} /></button>
+                    
+                    {/* BOTTONE INVIA EMAIL */}
+                    <button 
+                      onClick={() => sendEmailCredentials(emp)} 
+                      disabled={sendingEmailId === emp.id}
+                      className="p-2 text-purple-600 hover:bg-purple-50 rounded-md transition disabled:opacity-40" 
+                      title={emp.email ? "Invia credenziali via Email" : "Inserisci un'email con la matita ✏️"}
+                    >
+                      {sendingEmailId === emp.id ? (
+                        <Loader2 size={18} className="animate-spin text-purple-600" />
+                      ) : (
+                        <Mail size={18} />
+                      )}
+                    </button>
+
                     <button onClick={() => deleteEmployee(emp.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-md transition" title="Elimina"><Trash2 size={18} /></button>
                   </td>
                 </tr>
