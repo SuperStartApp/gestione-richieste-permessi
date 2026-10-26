@@ -56,7 +56,10 @@ export async function POST(req: Request) {
         emailContentHtml = `
           <h2 style="color: #852136; margin-top: 0;">Accesso Area Personale Todde Bus</h2>
           <p>Ciao <strong>${firstName}</strong>,</p>
-          <p>Di seguito trovi i tuoi dati riservati per accedere all'area di gestione permessi:</p>
+          <p>Ti informo che, a partire da oggi, sarà introdotto un nuovo canale dedicato alla gestione delle presenze e delle assenze del personale.</p>
+          <p>Attraverso il nuovo portale sarà possibile inserire e inoltrare tutte le richieste relative a: <strong>ferie, permessi, congedi e malattia</strong>.</p>
+          <p>Tutte le richieste e le comunicazioni dovranno essere effettuate esclusivamente tramite il nuovo gestionale, pertanto non verranno più prese in considerazione le richieste inviate attraverso altri canali, quali e-mail, messaggi o comunicazioni verbali.</p>
+          <p>Di seguito trovi i tuoi dati riservati per accedere alla tua area privata:</p>
           <div style="background-color: #f8fafc; border-left: 4px solid #852136; padding: 16px; margin: 20px 0; border-radius: 6px;">
             <p style="margin: 0 0 8px 0; font-size: 15px;"><strong>Il tuo PIN:</strong> <span style="font-size: 20px; font-weight: bold; color: #852136; letter-spacing: 2px;">${pin}</span></p>
             <p style="margin: 0; font-size: 14px;"><strong>Link di accesso diretto:</strong><br/>
@@ -111,6 +114,7 @@ export async function POST(req: Request) {
             ${formattedHours ? `<p style="margin: 0 0 6px 0;"><strong>Nuovo Orario:</strong> ${formattedHours}</p>` : ''}
             ${notes ? `<p style="margin: 0;"><strong>Note di aggiornamento:</strong> ${notes}</p>` : ''}
           </div>
+          <p style="margin-top: 15px;"><strong>Si prega di riscontrare la presente comunicazione rispondendo direttamente a questo messaggio per confermare o rifiutare la variazione.</strong></p>
           <div style="margin-top: 20px; padding: 12px; background-color: #f8fafc; border-radius: 6px; font-size: 13px;">
             Verifica la tua Area Personale aggiornata:<br/>
             <a href="${privateLink}" style="color: #2563eb; word-break: break-all;">${privateLink}</a>
@@ -135,8 +139,22 @@ export async function POST(req: Request) {
             <div style="padding: 24px; color: #1e293b; line-height: 1.6;">
               ${emailContentHtml}
             </div>
-            <div style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px; text-align: center; font-size: 12px; color: #94a3b8;">
-              Messaggio automatico inviato da Todde Bus • Si prega di non rispondere direttamente a questa email.
+            <div style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px;">
+              <table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, sans-serif; font-size: 13px; color: #333333; width: 100%;">
+                <tr>
+                  <td style="padding-right: 15px; vertical-align: top; width: 110px;">
+                    <img src="https://www.toddebus.com/wp-content/uploads/2026/10/firma_todebus.jpeg" alt="Todde Bus Logo" width="100" style="display: block; border-radius: 4px;">
+                  </td>
+                  <td style="vertical-align: top; border-left: 2px solid #852136; padding-left: 15px;">
+                    <strong style="color: #852136; font-size: 14px;">Ufficio del personale</strong><br>
+                    <span style="color: #555555; font-size: 12px; line-height: 1.4; display: inline-block; margin-top: 4px;">
+                      Via dell'Omo 171 - 00155 - Roma<br>
+                      Tel: 0669281830<br>
+                      Email: <a href="mailto:personale@toddebus.it" style="color: #852136; text-decoration: none;">personale@toddebus.it</a>
+                    </span>
+                  </td>
+                </tr>
+              </table>
             </div>
           </div>
         </body>
