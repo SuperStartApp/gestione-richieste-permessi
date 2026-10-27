@@ -8,10 +8,24 @@ const formatSimpleDate = (dateStr?: string) => {
   return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dateStr;
 };
 
+// ⚡ Spostato FUORI per velocizzare ed evitare di ricreare il transporter a ogni click
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtps.aruba.it',
+  port: Number(process.env.SMTP_PORT) || 465,
+  secure: true,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+  // Ottimizzazione socket Aruba
+  pool: true,
+  maxConnections: 3,
+});
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const {
+    let {
       type,
       employeeId,
       requestId,
@@ -31,18 +45,32 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Email destinatario mancante' }, { status: 400 });
     }
 
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtps.aruba.it',
-      port: Number(process.env.SMTP_PORT) || 465,
-      secure: true,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
+    // 🔍 SE IL FRONTEND NON HA PASSATO IL PIN, LO CERCHIAMO SU SUPABASE
+    if ((!pin || !privateLinkId) && employeeId) {
+      const { data: emp } = await supabase
+        .from('tbpr_employees')
+        .select('pin, private_link_id')
+        .eq('id', employeeId)
+        .single();
+
+      if (emp) {
+        if (!pin && emp.pin) pin = emp.pin;
+        if (!privateLinkId && emp.private_link_id) privateLinkId = emp.private_link_id;
+      }
+    }
 
     const origin = req.headers.get('origin') || process.env.NEXT_PUBLIC_SITE_URL || 'https://toddebus.it';
     const privateLink = privateLinkId ? `${origin}/private/${privateLinkId}` : `${origin}/private`;
+
+    // Box credenziali comune
+    const credentialsBoxHtml = `
+      <div style="background-color: #f8fafc; border-left: 4px solid #852136; padding: 16px; margin: 20px 0; border-radius: 6px;">
+        <p style="margin: 0 0 8px 0; font-size: 15px;"><strong>Il tuo PIN:</strong> <span style="font-size: 20px; font-weight: bold; color: #852136; letter-spacing: 2px;">${pin || 'N/D'}</span></p>
+        <p style="margin: 0; font-size: 14px;"><strong>Link di accesso diretto:</strong><br/>
+          <a href="${privateLink}" style="color: #2563eb; word-break: break-all;">${privateLink}</a>
+        </p>
+      </div>
+    `;
 
     let subject = '';
     let emailContentHtml = '';
@@ -60,12 +88,7 @@ export async function POST(req: Request) {
           <p>Attraverso il nuovo portale sarà possibile inserire e inoltrare tutte le richieste relative a: <strong>ferie, permessi, congedi e malattia</strong>.</p>
           <p>Tutte le richieste e le comunicazioni dovranno essere effettuate esclusivamente tramite il nuovo gestionale, pertanto non verranno più prese in considerazione le richieste inviate attraverso altri canali, quali e-mail, messaggi o comunicazioni verbali.</p>
           <p>Di seguito trovi i tuoi dati riservati per accedere alla tua area privata:</p>
-          <div style="background-color: #f8fafc; border-left: 4px solid #852136; padding: 16px; margin: 20px 0; border-radius: 6px;">
-            <p style="margin: 0 0 8px 0; font-size: 15px;"><strong>Il tuo PIN:</strong> <span style="font-size: 20px; font-weight: bold; color: #852136; letter-spacing: 2px;">${pin}</span></p>
-            <p style="margin: 0; font-size: 14px;"><strong>Link di accesso diretto:</strong><br/>
-              <a href="${privateLink}" style="color: #2563eb; word-break: break-all;">${privateLink}</a>
-            </p>
-          </div>
+          ${credentialsBoxHtml}
           <p style="font-size: 13px; color: #64748b;">Custodisci questo link e il tuo PIN con cura.</p>
         `;
         break;
@@ -82,10 +105,8 @@ export async function POST(req: Request) {
             ${formattedHours ? `<p style="margin: 0 0 6px 0;"><strong>Orario:</strong> ${formattedHours}</p>` : ''}
             ${notes ? `<p style="margin: 0;"><strong>Note amministrazione:</strong> ${notes}</p>` : ''}
           </div>
-          <div style="margin-top: 20px; padding: 12px; background-color: #f8fafc; border-radius: 6px; font-size: 13px;">
-            Puoi verificare il riepilogo nella tua Area Personale:<br/>
-            <a href="${privateLink}" style="color: #2563eb; word-break: break-all;">${privateLink}</a>
-          </div>
+          <p style="margin-top: 20px; font-size: 14px;">I tuoi dati per accedere all'Area Personale e visualizzare il riepilogo:</p>
+          ${credentialsBoxHtml}
         `;
         break;
 
@@ -100,6 +121,8 @@ export async function POST(req: Request) {
             <p style="margin: 0;"><strong>Motivazione:</strong> ${notes}</p>
           </div>` : ''}
           <p style="font-size: 13px; color: #64748b;">Per eventuali chiarimenti puoi rivolgerti all'ufficio del personale.</p>
+          <p style="margin-top: 20px; font-size: 14px;">I tuoi dati di accesso per consultare la tua Area Personale:</p>
+          ${credentialsBoxHtml}
         `;
         break;
 
@@ -115,10 +138,8 @@ export async function POST(req: Request) {
             ${notes ? `<p style="margin: 0;"><strong>Note di aggiornamento:</strong> ${notes}</p>` : ''}
           </div>
           <p style="margin-top: 15px; color: #dc2626; font-weight: bold; font-size: 14px;">RISPONDERE A QUESTA EMAIL PER CONFERMARE O RIFIUTARE LA VARIAZIONE</p>
-          <div style="margin-top: 20px; padding: 12px; background-color: #f8fafc; border-radius: 6px; font-size: 13px;">
-            Verifica la tua Area Personale aggiornata:<br/>
-            <a href="${privateLink}" style="color: #2563eb; word-break: break-all;">${privateLink}</a>
-          </div>
+          <p style="margin-top: 20px; font-size: 14px;">I tuoi dati di accesso per visualizzare la richiesta modificata:</p>
+          ${credentialsBoxHtml}
         `;
         break;
 
