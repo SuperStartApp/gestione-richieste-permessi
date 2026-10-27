@@ -114,7 +114,7 @@ export async function POST(req: Request) {
             ${formattedHours ? `<p style="margin: 0 0 6px 0;"><strong>Nuovo Orario:</strong> ${formattedHours}</p>` : ''}
             ${notes ? `<p style="margin: 0;"><strong>Note di aggiornamento:</strong> ${notes}</p>` : ''}
           </div>
-          <p style="margin-top: 15px;"><strong>PER CONFERMARE O RIFIUTARE LA VARIAZIONE SI PREGRA DI RISPONDERE A QUESTO MESSAGGIO.</strong></p>
+          <p style="margin-top: 15px; color: #dc2626; font-weight: bold; font-size: 14px;">RISPONDERE A QUESTA EMAIL PER CONFERMARE O RIFIUTARE LA VARIAZIONE</p>
           <div style="margin-top: 20px; padding: 12px; background-color: #f8fafc; border-radius: 6px; font-size: 13px;">
             Verifica la tua Area Personale aggiornata:<br/>
             <a href="${privateLink}" style="color: #2563eb; word-break: break-all;">${privateLink}</a>
