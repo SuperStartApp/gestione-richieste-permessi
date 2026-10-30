@@ -1,9 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import {
   Bus,
@@ -16,43 +14,6 @@ import {
 } from "lucide-react";
 
 export default function HomePage() {
-  const router = useRouter();
-  const [checking, setChecking] = useState(true);
-
-  // Riconosce un precedente accesso del dipendente
-  useEffect(() => {
-    const savedEmployeeId = localStorage.getItem("todde_emp_id");
-    const savedLinkId = localStorage.getItem("todde_link_id");
-
-    // Se il dispositivo ha già un collegamento personale,
-    // apre direttamente l'area del dipendente.
-    if (savedEmployeeId && savedLinkId) {
-      router.replace(
-        `/private/${encodeURIComponent(savedLinkId)}`
-      );
-      return;
-    }
-
-    // Altrimenti mostra il portale della direzione
-    setChecking(false);
-  }, [router]);
-
-  // Evita di mostrare per un istante il portale
-  // della direzione durante il reindirizzamento.
-  if (checking) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-950 text-white gap-4">
-        <Bus size={48} className="text-rose-500 animate-pulse" />
-        <h1 className="text-2xl font-black tracking-wider">
-          TODDE BUS
-        </h1>
-        <p className="text-sm text-gray-400">
-          Apertura del gestionale...
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-gray-900 to-black text-white flex flex-col justify-between p-6 sm:p-10 font-sans">
 
@@ -62,6 +23,7 @@ export default function HomePage() {
           <div className="bg-todde p-3 rounded-2xl text-white shadow-lg shadow-todde/40">
             <Bus size={28} />
           </div>
+
           <div>
             <h1 className="text-2xl font-black tracking-wider uppercase">
               TODDE BUS
