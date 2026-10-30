@@ -137,15 +137,26 @@ export default function PrivateArea() {
     setLoading(false);
   }
 
-  async function logout() {
-    localStorage.removeItem('todde_emp_id');
-    localStorage.removeItem('todde_link_id');
-    // Conserviamo todde_preferred_link anche dopo il logout.
-    setPin('');
-    setRequests([]);
-    setStep('login');
-    setEmployee(null);
-  }
+  
+async function logout() {
+  // Elimina l'eventuale PIN temporaneo
+  sessionStorage.removeItem("todde_pin_handoff");
+
+  // Pulisce i dati del precedente dipendente
+  localStorage.removeItem("todde_emp_id");
+  localStorage.removeItem("todde_link_id");
+  localStorage.removeItem("todde_preferred_link");
+
+  // Azzera i dati della schermata
+  setPin("");
+  setRequests([]);
+  setEmployee(null);
+  setStep("login");
+
+  // Torna all'accesso generale della PWA
+  router.replace("/dipendenti");
+}
+
 
   // Scarica le richieste INCLUDENDO anche le ricevute email da tbpr_email_logs!
   async function fetchRequests(empId: string) {
