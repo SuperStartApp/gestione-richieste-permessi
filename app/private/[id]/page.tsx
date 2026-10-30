@@ -38,25 +38,78 @@ export default function PrivateArea() {
     });
   };
 
-  // --- GESTIONE SESSIONE AL CARICAMENTO ---
+  // Accetta un PIN verificato dalla schermata /dipendenti una sola volta.
+  // La pagina privata lo ricontrolla nel database prima di mostrare dati.
+  
+  // Riceve il PIN dalla pagina /dipendenti.
+  // Lo verifica nuovamente prima di mostrare il pannello.
   useEffect(() => {
-    const checkSession = async () => {
-      const savedEmpId = localStorage.getItem('todde_emp_id');
-      const savedLinkId = localStorage.getItem('todde_link_id');
+    let cancelled = false;
 
-      if (savedEmpId && savedLinkId === employeeIdFromUrl) {
-        const { data } = await supabase.from('tbpr_employees').select('*').eq('id', savedEmpId).single();
-        if (data) {
-          setEmployee(data);
-          setStep('dashboard');
-          fetchRequests(data.id);
-          return;
+    async function initialize() {
+      setEmployee(null);
+      setRequests([]);
+      setPin("");
+      setStep("loading");
+
+      const raw = sessionStorage.getItem("todde_pin_handoff");
+
+      if (raw) {
+        try {
+          const handoff = JSON.parse(raw) as {
+            link?: string;
+            pin?: string;
+          };
+
+          if (
+            handoff.link === employeeIdFromUrl &&
+            /^\d{6}$/.test(handoff.pin || "")
+          ) {
+            const { data, error } = await supabase
+              .from("tbpr_employees")
+              .select("*")
+              .eq("private_link_id", employeeIdFromUrl)
+              .eq("pin", handoff.pin)
+              .single();
+
+            if (cancelled) return;
+
+            if (!error && data) {
+              // Cancella il PIN soltanto dopo la verifica riuscita.
+              sessionStorage.removeItem("todde_pin_handoff");
+
+              localStorage.setItem(
+                "todde_preferred_link",
+                employeeIdFromUrl
+              );
+
+              setEmployee(data);
+              setStep("dashboard");
+              fetchRequests(data.id);
+              return;
+            }
+          }
+        } catch (error) {
+          console.error("Errore accesso dipendente:", error);
+        }
+
+        if (!cancelled) {
+          sessionStorage.removeItem("todde_pin_handoff");
         }
       }
-      setStep('login');
+
+      if (!cancelled) {
+        setStep("login");
+      }
+    }
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
     };
-    checkSession();
   }, [employeeIdFromUrl]);
+
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -73,8 +126,9 @@ export default function PrivateArea() {
     if (error || !data) {
       alert("PIN errato!");
     } else {
-      localStorage.setItem('todde_emp_id', data.id);
-      localStorage.setItem('todde_link_id', employeeIdFromUrl);
+      // Ricorda soltanto quale pagina aprire dalla PWA.
+      // Questo valore NON concede accesso senza PIN.
+      localStorage.setItem('todde_preferred_link', employeeIdFromUrl);
       
       setEmployee(data);
       setStep('dashboard');
@@ -86,6 +140,9 @@ export default function PrivateArea() {
   async function logout() {
     localStorage.removeItem('todde_emp_id');
     localStorage.removeItem('todde_link_id');
+    // Conserviamo todde_preferred_link anche dopo il logout.
+    setPin('');
+    setRequests([]);
     setStep('login');
     setEmployee(null);
   }
