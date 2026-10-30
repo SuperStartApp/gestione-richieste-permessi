@@ -3,7 +3,7 @@
   "name": "Todde Bus - Gestionale Aziendale",
   "short_name": "Todde Bus",
   "description": "Gestionale aziendale Todde Bus",
-  "start_url": "/",
+  "start_url": "/avvio",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
